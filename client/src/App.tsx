@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { DynamicUI, type UINode } from "./DynamicUI";
 import { tryParsePartialJson } from "@/lib/partialJson";
 
-const SERVER_URL = "http://localhost:3000/api/chat";
+// const SERVER_URL = "http://localhost:3000/api/chat";
+const SERVER_URL = "https://moss-hacktoberfest-26-server.bittere.workers.dev";
 const STORAGE_KEY_WIDGETS = "app_cached_widgets_v1";
 const STORAGE_KEY_CONVO = "app_cached_conversation_id";
 
