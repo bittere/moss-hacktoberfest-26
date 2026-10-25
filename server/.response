@@ -1,0 +1,81 @@
+{
+	"type": "Container",
+	"layout": { "direction": "column", "gap": "md" },
+	"children": [
+		{
+			"type": "Container",
+			"layout": { "direction": "row", "justify": "between", "align": "center" },
+			"children": [
+				{
+					"type": "Text",
+					"props": { "label": "San Francisco • 18°C" },
+					"children": []
+				},
+				{
+					"type": "Text",
+					"props": { "label": "Partly Cloudy" },
+					"children": []
+				}
+			]
+		},
+		{
+			"type": "Stepper",
+			"props": {
+				"steps": ["Morning", "Afternoon", "Evening", "Night"],
+				"currentStep": 1
+			},
+			"children": []
+		},
+		{
+			"type": "Container",
+			"layout": { "direction": "column", "gap": "sm" },
+			"children": [
+				{
+					"type": "Text",
+					"props": { "label": "Precipitation Chance (40%)" },
+					"children": []
+				},
+				{
+					"type": "Progress",
+					"props": { "value": 40, "min": 0, "max": 100 },
+					"children": []
+				}
+			]
+		},
+		{
+			"type": "Container",
+			"layout": { "direction": "row", "justify": "between", "align": "center" },
+			"children": [
+				{
+					"type": "Rating",
+					"props": { "value": 4, "max": 5 },
+					"children": []
+				}
+			]
+		},
+		{
+			"type": "Container",
+			"layout": { "direction": "row", "gap": "sm" },
+			"children": [
+				{
+					"type": "Button",
+					"props": {
+						"label": "Hourly Radar",
+						"variant": "primary",
+						"actionId": "view_radar"
+					},
+					"children": []
+				},
+				{
+					"type": "Button",
+					"props": {
+						"label": "7-Day Outlook",
+						"variant": "secondary",
+						"actionId": "view_outlook"
+					},
+					"children": []
+				}
+			]
+		}
+	]
+}
