@@ -3,14 +3,14 @@ import { GoogleGenAI } from "@google/genai";
 // ==========================================
 // CONFIGURATION
 // ==========================================
-const MOCK = true; // Toggle to true to stream from `.response`
-const MOCK_DELAY_MS = 35; // Simulated delay between chunks in ms
+const MOCK = false; // Set to true to stream mock data from `.response`
+const MOCK_DELAY_MS = 25; // Simulated delay between mock chunks
 const PORT = process.env.PORT || 3000;
 
-// Automatically picks up GEMINI_API_KEY from process.env
+// Automatically reads GEMINI_API_KEY from environment
 const ai = new GoogleGenAI({});
 
-// Terminal colors for clean console output
+// ANSI terminal colors
 const colors = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
@@ -18,9 +18,154 @@ const colors = {
   green: "\x1b[32m",
   yellow: "\x1b[33m",
   red: "\x1b[31m",
+  magenta: "\x1b[35m",
 };
 
+// UI Schema: Only 'type' is required to prevent recursive leaf node deadlocks
 const uiSchema = {
+  type: "object",
+  properties: {
+    type: { type: "string" },
+    layout: {
+      type: "object",
+      properties: {
+        direction: { type: "string" },
+        gap: { type: "string" },
+      },
+    },
+    props: { type: "object" }, // 👈 Keeps FSM states small
+    children: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          props: { type: "object" },
+          children: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string" },
+                props: { type: "object" },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  required: ["type"],
+};
+
+/**
+ * Generator that yields simulated SSE events by reading a local `.response` file
+ */
+async function* createMockStream(filePath = ".response", delayMs = MOCK_DELAY_MS) {
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    throw new Error(`Mock file '${filePath}' not found. Please create it with sample JSON.`);
+  }
+
+  const text = await file.text();
+
+  // 1. Emit simulated interaction ID
+  yield {
+    event_type: "interaction.created",
+    interaction: { id: `mock_${crypto.randomUUID().slice(0, 10)}` },
+  };
+
+  // 2. Break up content line-by-line while preserving \n characters
+  const chunks = text.match(/[^\r\n]*\r?\n|[^\r\n]+/g) || [text];
+
+  for (const chunk of chunks) {
+    await Bun.sleep(delayMs);
+    yield {
+      event_type: "step.delta",
+      delta: { text: chunk },
+    };
+  }
+}
+
+Bun.serve({
+  port: PORT,
+  idleTimeout: 255,
+  async fetch(req) {
+    const startTime = performance.now();
+    const requestId = crypto.randomUUID().slice(0, 8);
+    const url = new URL(req.url);
+
+    const logPrefix = `${colors.dim}[${new Date().toISOString()}]${colors.reset} [${colors.cyan}${requestId}${colors.reset}]`;
+
+    console.log(`${logPrefix} 📥 ${req.method} ${url.pathname}`);
+
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      console.log(`${logPrefix} ${colors.green}204 OK${colors.reset} (CORS Preflight)`);
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
+    // Chat endpoint
+    if (url.pathname === "/api/chat" && req.method === "POST") {
+      try {
+        const body = await req.json().catch(() => null);
+        if (!body) {
+          console.warn(`${logPrefix} ${colors.yellow}400 Bad Request${colors.reset} - Missing JSON body`);
+          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const {
+          message,
+          conversationId,
+          // Default to gemini-2.5-flash for rock-solid schema compliance
+          model = "gemma-4-31b-it",
+        } = body;
+
+        console.log(
+          `${logPrefix} Model: ${colors.cyan}${model}${colors.reset} | ConvID: ${colors.yellow}${conversationId || "new"}${colors.reset}`
+        );
+        console.log(
+          `${logPrefix} Prompt: "${colors.dim}${message?.slice(0, 80)}${message?.length > 80 ? "..." : ""}${colors.reset}"`
+        );
+
+        if (!message) {
+          console.warn(`${logPrefix} ${colors.yellow}400 Bad Request${colors.reset} - Missing 'message'`);
+          return new Response(JSON.stringify({ error: "Message is required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const fetchStart = performance.now();
+        let stream: AsyncIterable<any>;
+
+        if (MOCK) {
+          console.log(`${logPrefix} 🧪 ${colors.yellow}[MOCK MODE]${colors.reset} Streaming from .response file...`);
+          stream = createMockStream(".response");
+        } else {
+          console.log(`${logPrefix} ⏳ Requesting stream from Gemini API...`);
+
+          stream = await ai.interactions.create({
+            model,
+            input: message,
+            previous_interaction_id: conversationId,
+            stream: true,
+            generation_config: {
+              max_output_tokens: 65535,
+              thinking_level: "high",
+            },
+            system_instruction:
+              `You are an interface-generating conversational agent. Generate a user interface for the user's request using the defined UI schema. STRICTLY return valid JSON adhering to the schema. Keep in mind that if the user is just saying Hi, you need not generate an entire interface for them. Generated interfaces are automatically styled.
+Schema: {
   type: "object",
   properties: {
     type: {
@@ -92,128 +237,27 @@ const uiSchema = {
       },
     },
   },
-  required: ["type", "children"],
-};
-
-/**
- * Generator that yields mock Gemini stream events from `.response`
- */
-async function* createMockStream(filePath = ".response", delayMs = MOCK_DELAY_MS) {
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) {
-    throw new Error(`Mock file '${filePath}' not found. Please create it with sample JSON.`);
-  }
-
-  const text = await file.text();
-
-  // 1. Emit mock interaction ID
-  yield {
-    event_type: "interaction.created",
-    interaction: { id: `mock_${crypto.randomUUID().slice(0, 10)}` },
-  };
-
-  // 2. Break up line-by-line while preserving \n characters
-  const chunks = text.match(/[^\r\n]*\r?\n|[^\r\n]+/g) || [text];
-
-  for (const chunk of chunks) {
-    await Bun.sleep(delayMs); // Simulate realistic model generation speed
-    yield {
-      event_type: "step.delta",
-      delta: { text: chunk },
-    };
-  }
-}
-
-Bun.serve({
-  port: PORT,
-  async fetch(req) {
-    const startTime = performance.now();
-    const requestId = crypto.randomUUID().slice(0, 8);
-    const url = new URL(req.url);
-
-    const logPrefix = `${colors.dim}[${new Date().toISOString()}]${colors.reset} [${colors.cyan}${requestId}${colors.reset}]`;
-
-    console.log(`${logPrefix} 📥 ${req.method} ${url.pathname}`);
-
-    // Handle CORS preflight
-    if (req.method === "OPTIONS") {
-      console.log(`${logPrefix} ${colors.green}204 OK${colors.reset} (CORS Preflight)`);
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
-      });
-    }
-
-    // Chat / Inference Endpoint
-    if (url.pathname === "/api/chat" && req.method === "POST") {
-      try {
-        const body = await req.json().catch(() => null);
-        if (!body) {
-          console.warn(`${logPrefix} ${colors.yellow}400 Bad Request${colors.reset} - Missing JSON body`);
-          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const {
-          message,
-          conversationId,
-          model = "gemma-4-31b-it",
-        } = body;
-
-        console.log(
-          `${logPrefix} Model: ${colors.cyan}${model}${colors.reset} | ConvID: ${colors.yellow}${conversationId || "new"}${colors.reset}`
-        );
-        console.log(
-          `${logPrefix} Prompt preview: "${colors.dim}${message?.slice(0, 60)}${message?.length > 60 ? "..." : ""}${colors.reset}"`
-        );
-
-        if (!message) {
-          console.warn(`${logPrefix} ${colors.yellow}400 Bad Request${colors.reset} - Missing 'message'`);
-          return new Response(JSON.stringify({ error: "Message is required" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const fetchStart = performance.now();
-        let stream: AsyncIterable<any>;
-
-        // Switch between Mock stream and Real Gemini API
-        if (MOCK) {
-          console.log(`${logPrefix} 🧪 ${colors.yellow}[MOCK MODE]${colors.reset} Streaming from .response file...`);
-          stream = createMockStream(".response");
-        } else {
-          console.log(`${logPrefix} ⏳ Requesting stream from Gemini API...`);
-
-          stream = await ai.interactions.create({
-            model,
-            input: message,
-            previous_interaction_id: conversationId,
-            stream: true,
-            system_instruction: "Generate a user interface for the given user's request based on the given schema. STRICTLY adhere to the schema.",
-            response_format: {
-              type: "text",
-              mime_type: "application/json",
-              schema: uiSchema,
-            },
+  required: ["type"], // Critical: leaf nodes must NOT be forced to have children
+}`,
+            // response_format: {
+            //   type: "text",
+            //   mime_type: "application/json",
+            //   schema: uiSchema,
+            // },
           });
         }
 
         const encoder = new TextEncoder();
         let nextInteractionId = conversationId;
-        let chunkCount = 0;
+        let tokenChunkCount = 0;
+        let thoughtChunkCount = 0;
         let firstChunkTime: number | null = null;
 
         const responseStream = new ReadableStream({
           async start(controller) {
             try {
               for await (const event of stream) {
-                // 1. Capture interaction ID
+                // 1. Capture interaction ID across lifecycles
                 const streamId =
                   event.interaction?.id ||
                   event.interaction_id ||
@@ -223,24 +267,36 @@ Bun.serve({
                   nextInteractionId = streamId;
                 }
 
-                // 2. Incremental text chunks arrive in step.delta events
-                if (event.event_type === "step.delta" && event.delta?.text) {
-                  chunkCount++;
+                // 2. Handle deltas
+                if (event.event_type === "step.delta" && event.delta) {
                   if (!firstChunkTime) {
                     firstChunkTime = performance.now();
                     const ttft = (firstChunkTime - fetchStart).toFixed(0);
-                    console.log(`${logPrefix} ⚡ First token/chunk received in ${ttft}ms`);
+                    console.log(`${logPrefix} ⚡ First response chunk received in ${ttft}ms (TTFT)`);
                   }
 
-                  const payload = JSON.stringify({
-                    type: "token",
-                    text: event.delta.text,
-                  });
-                  controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+                  // Handle model thinking phase
+                  if (event.delta.thought) {
+                    thoughtChunkCount++;
+                    const thoughtPayload = JSON.stringify({
+                      type: "thought",
+                      text: event.delta.text,
+                    });
+                    controller.enqueue(encoder.encode(`data: ${thoughtPayload}\n\n`));
+                  }
+                  // Handle actual JSON text generation
+                  else if (event.delta.text) {
+                    tokenChunkCount++;
+                    const tokenPayload = JSON.stringify({
+                      type: "token",
+                      text: event.delta.text,
+                    });
+                    controller.enqueue(encoder.encode(`data: ${tokenPayload}\n\n`));
+                  }
                 }
               }
 
-              // 3. Emit final payload with ID
+              // 3. Emit final payload with next conversation ID
               const donePayload = JSON.stringify({
                 type: "done",
                 conversationId: nextInteractionId,
@@ -250,7 +306,10 @@ Bun.serve({
 
               const totalDuration = (performance.now() - startTime).toFixed(0);
               console.log(
-                `${logPrefix} ${colors.green}✔ Stream Completed${colors.reset} in ${totalDuration}ms | Chunks: ${chunkCount} | Next ConvID: ${colors.yellow}${nextInteractionId || "none"}${colors.reset}`
+                `${logPrefix} ${colors.green}✔ Completed${colors.reset} in ${totalDuration}ms | ` +
+                `Thoughts: ${colors.magenta}${thoughtChunkCount}${colors.reset} | ` +
+                `JSON Chunks: ${colors.green}${tokenChunkCount}${colors.reset} | ` +
+                `Next ConvID: ${colors.yellow}${nextInteractionId || "none"}${colors.reset}`
               );
             } catch (err: any) {
               const totalDuration = (performance.now() - startTime).toFixed(0);

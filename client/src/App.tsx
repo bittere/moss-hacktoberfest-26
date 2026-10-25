@@ -205,7 +205,7 @@ export default function App() {
             {widgets.map((widget) => (
               <div
                 key={widget.id}
-                className="w-[340px] md:w-[400px] max-h-[calc(100vh-160px)] overflow-y-auto shrink-0 rounded-2xl border border-border/50 bg-card/75 p-5 shadow-lg backdrop-blur-md"
+                className="w-[340px] md:w-[400px] max-h-[calc(100vh-160px)] overflow-y-auto shrink-0 rounded-2xl border border-border/50 bg-card/75 p-5 shadow-lg backdrop-blur-md arc-theme" data-theme="dark"
                 style={{
                   scrollbarWidth: "thin",
                   scrollbarColor: "hsl(var(--muted-foreground) / 0.2) transparent",
