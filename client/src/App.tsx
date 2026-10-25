@@ -2,6 +2,14 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DynamicUI, type UINode } from "./DynamicUI";
 import { tryParsePartialJson } from "@/lib/partialJson";
+import { SAMPLE_WIDGETS } from "./sampleWidgets";
+
+const DEFAULT_WIDGETS: WidgetItem[] = SAMPLE_WIDGETS.map((tree) => ({
+  id: crypto.randomUUID(),
+  tree,
+  isStreaming: false,
+}));
+
 
 // const SERVER_URL = "http://localhost:3000/api/chat";
 const SERVER_URL = "https://moss-hacktoberfest-26-server.bittere.workers.dev/api/chat";
@@ -96,18 +104,24 @@ export default function App() {
 
   // Initialize widgets from localStorage
   const [widgets, setWidgets] = useState<WidgetItem[]>(() => {
-    if (typeof window === "undefined") return [];
+    if (typeof window === "undefined") return DEFAULT_WIDGETS;
     try {
       const saved = localStorage.getItem(STORAGE_KEY_WIDGETS);
-      if (!saved) return [];
+
+      // If never set before (first visit), load the sample widgets
+      if (saved === null) {
+        return DEFAULT_WIDGETS;
+      }
+
       const parsed: WidgetItem[] = JSON.parse(saved);
       return parsed
         .filter((w) => w && w.tree)
         .map((w) => ({ ...w, isStreaming: false }));
     } catch {
-      return [];
+      return DEFAULT_WIDGETS;
     }
   });
+
 
   const [conversationId, setConversationId] = useState<string | undefined>(() => {
     if (typeof window === "undefined") return undefined;
@@ -149,9 +163,10 @@ export default function App() {
   const handleClearAll = () => {
     setWidgets([]);
     setConversationId(undefined);
-    localStorage.removeItem(STORAGE_KEY_WIDGETS);
+    localStorage.setItem(STORAGE_KEY_WIDGETS, "[]");
     localStorage.removeItem(STORAGE_KEY_CONVO);
   };
+
 
   const handleSubmit = async (overridePrompt?: string) => {
     const prompt = (overridePrompt || value).trim();
