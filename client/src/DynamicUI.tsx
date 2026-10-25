@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import * as LucideIcons from "lucide-react";
 
 // Arc UI Components
 import { Button } from "@/components/arc/button/button";
@@ -24,6 +25,33 @@ export interface UINode {
   children?: (UINode | null)[];
 }
 
+// -------------------------------------------------------------
+// 1. Dynamic Lucide Icon Helper
+// Converts kebab-case ("trending-up") -> PascalCase ("TrendingUp")
+// -------------------------------------------------------------
+function DynamicIcon({
+  name,
+  className = "h-4 w-4 shrink-0",
+}: {
+  name?: string;
+  className?: string;
+}) {
+  if (!name) return null;
+
+  const pascalName = name
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join("");
+
+  const IconComponent =
+    (LucideIcons as Record<string, any>)[pascalName] || LucideIcons.Sparkles;
+
+  return <IconComponent className={className} />;
+}
+
+// -------------------------------------------------------------
+// 2. Controlled InlineEdit wrapper
+// -------------------------------------------------------------
 function DynamicInlineEdit({
   props,
   onAction,
@@ -47,6 +75,9 @@ function DynamicInlineEdit({
   );
 }
 
+// -------------------------------------------------------------
+// 3. Main DynamicUI Renderer
+// -------------------------------------------------------------
 export function DynamicUI({
   node,
   onAction,
@@ -54,39 +85,143 @@ export function DynamicUI({
   node: UINode | null;
   onAction?: (id?: string) => void;
 }) {
-  // 1. Guard against null or non-object node
   if (!node || typeof node !== "object") return null;
 
-  // 2. Guaranteed safe defaults (even if node.props is literally null)
+  // Safe null-guards
   const props = node.props && typeof node.props === "object" ? node.props : {};
   const layout = node.layout && typeof node.layout === "object" ? node.layout : {};
   const children = Array.isArray(node.children) ? node.children : [];
   const type = node.type || "Container";
 
+  // Distributes containers & gauges with flex-1 while keeping badges/icons natural
   const renderChildren = (isRow: boolean) => {
     if (!children.length) return null;
+
     return children
-      .filter((child): child is UINode => child !== null && typeof child === "object") // Guard against null items in children
-      .map((child, i) => (
-        <div
-          key={i}
-          className={isRow ? "flex-1 min-w-0 flex flex-col" : "w-full"}
-        >
-          <DynamicUI node={child} onAction={onAction} />
-        </div>
-      ));
+      .filter((child): child is UINode => child !== null && typeof child === "object")
+      .map((child, i) => {
+        const isExpansive =
+          child.type === "Container" ||
+          child.type === "Progress" ||
+          child.type === "ElasticSlider";
+
+        return (
+          <div
+            key={i}
+            className={
+              isRow
+                ? isExpansive
+                  ? "flex-1 min-w-0 flex flex-col"
+                  : "shrink-0 flex items-center"
+                : "w-full"
+            }
+          >
+            <DynamicUI node={child} onAction={onAction} />
+          </div>
+        );
+      });
   };
 
   switch (type) {
-    case "Button":
+    // ---------------------------------------------------------
+    // Layout & Primitives
+    // ---------------------------------------------------------
+    case "WidgetHeader":
+      return (
+        <div className="w-full flex items-center justify-between gap-3 pb-2.5 mb-1 border-b border-border/40">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {props.iconName && (
+              <div className="p-1.5 rounded-lg bg-muted text-foreground">
+                <DynamicIcon name={props.iconName} className="h-4 w-4" />
+              </div>
+            )}
+            <div className="flex flex-col min-w-0">
+              {props.title && (
+                <h3 className="text-sm font-semibold text-foreground truncate leading-tight">
+                  {props.title}
+                </h3>
+              )}
+              {props.subtitle && (
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {props.subtitle}
+                </p>
+              )}
+            </div>
+          </div>
+          {props.label && (
+            <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground border border-border/40">
+              {props.label}
+            </span>
+          )}
+        </div>
+      );
+
+    case "Badge": {
+      const variantClassMap: Record<string, string> = {
+        primary: "bg-primary text-primary-foreground border-transparent",
+        secondary: "bg-secondary text-secondary-foreground border-border/40",
+        destructive: "bg-destructive text-destructive-foreground border-transparent",
+        outline: "bg-transparent text-foreground border-border/60",
+      };
+      const badgeVariant = variantClassMap[props.variant || "secondary"] || variantClassMap.secondary;
+
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${badgeVariant}`}
+        >
+          {props.iconName && <DynamicIcon name={props.iconName} className="h-3 w-3" />}
+          {props.label || props.text}
+        </span>
+      );
+    }
+
+    case "Icon":
+      return (
+        <DynamicIcon
+          name={props.iconName || props.label}
+          className="h-4 w-4 text-foreground/80 shrink-0"
+        />
+      );
+
+    case "Divider":
+      return <hr className="w-full border-t border-border/40 my-1" />;
+
+    case "Text": {
+      const textVariantMap: Record<string, string> = {
+        primary: "text-sm font-semibold text-foreground",
+        secondary: "text-xs text-muted-foreground",
+        destructive: "text-sm font-medium text-destructive",
+        outline: "text-xs font-mono text-muted-foreground",
+      };
+      const textClass = textVariantMap[props.variant || ""] || "text-sm text-foreground/90";
+
+      return <p className={textClass}>{props.label || props.text}</p>;
+    }
+
+    // ---------------------------------------------------------
+    // Arc UI Components
+    // ---------------------------------------------------------
+    case "Button": {
+      const buttonVariantMap: Record<string, string> = {
+        primary: "!bg-primary !text-primary-foreground hover:!bg-primary/90",
+        secondary:
+          "!bg-secondary !text-secondary-foreground !border !border-border/60 hover:!bg-secondary/80",
+        destructive: "!bg-destructive !text-destructive-foreground hover:!bg-destructive/90",
+        outline: "!bg-transparent !text-foreground !border !border-border hover:!bg-muted",
+      };
+      const buttonVariant = props.variant || "primary";
+
       return (
         <Button
-          variant={props.variant || "primary"}
+          variant={buttonVariant}
+          className={buttonVariantMap[buttonVariant] || buttonVariantMap.primary}
           onClick={() => onAction?.(props.actionId)}
         >
+          {props.iconName && <DynamicIcon name={props.iconName} className="mr-1.5 h-3.5 w-3.5" />}
           {props.label || "Action"}
         </Button>
       );
+    }
 
     case "InlineEdit":
       return <DynamicInlineEdit props={props} onAction={onAction} />;
@@ -209,9 +344,9 @@ export function DynamicUI({
     case "ExpandableText":
       return <ExpandableText text={props.text || props.label || ""} />;
 
-    case "Text":
-      return <p className="text-sm text-foreground/90">{props.label || props.text}</p>;
-
+    // ---------------------------------------------------------
+    // Container
+    // ---------------------------------------------------------
     case "Container":
     default: {
       const isRow = layout.direction === "row";
