@@ -164,22 +164,19 @@ Bun.serve({
               thinking_level: "high",
             },
             system_instruction:
-              `You are an interface-generating conversational agent. Generate a user interface for the user's request using the defined UI schema. STRICTLY return valid JSON adhering to the schema. Keep in mind that if the user is just saying Hi, you can generate a simple text component. Generated interfaces are automatically styled.
+              `You are an interface-generating conversational agent. Generate a user interface for the user's request using the defined UI schema. STRICTLY return valid JSON adhering to the schema. Keep in mind that if the user is just saying Hi, you can generate a simple text component. Generated interfaces are automatically styled. You can use state (see the schema).
 const uiSchema = {
   type: "object",
   properties: {
     type: {
       type: "string",
       enum: [
-        // Layout & Primitives
         "Container",
         "WidgetHeader",
         "Text",
         "Icon",
         "Badge",
         "Divider",
-
-        // Arc UI Interactive & Display
         "Button",
         "Rating",
         "Switch",
@@ -193,9 +190,38 @@ const uiSchema = {
       ],
       description: "The component type to render.",
     },
+
+    // 1. Initial State Variables (placed on root Container)
+    state: {
+      type: "object",
+      description: "Initial reactive variables, e.g. { 'count': 0, 'power': true }",
+    },
+
+    // 2. Two-Way Binding for Inputs (Switch, Slider, SegmentedControl)
+    bind: {
+      type: "string",
+      description: "State key to bind this input to (e.g. 'brightness', 'isOnline')",
+    },
+
+    // 3. Click / Press Actions (Button, HoldToConfirm)
+    action: {
+      type: "object",
+      description: "Action triggered on click/interaction",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["set", "toggle", "increment", "decrement", "callLLM"],
+        },
+        target: { type: "string", description: "State key to modify" },
+        value: {
+          type: "number",
+          description: "Value to set, or amount to increment/decrement by",
+        },
+      },
+    },
+
     layout: {
       type: "object",
-      description: "Flexbox layout options (only used when type is Container).",
       properties: {
         direction: { type: "string", enum: ["row", "column"] },
         gap: { type: "string", enum: ["sm", "md", "lg"] },
@@ -203,63 +229,33 @@ const uiSchema = {
         justify: { type: "string", enum: ["start", "center", "between"] },
       },
     },
+
     props: {
       type: "object",
-      description: "Properties specific to each component type.",
       properties: {
-        // Generic & Header
-        label: { type: "string", description: "Label, button text, or badge label" },
-        title: { type: "string", description: "Main title for WidgetHeader" },
-        subtitle: { type: "string", description: "Subtitle for WidgetHeader" },
+        label: { type: "string", description: "Can use {{stateVar}} (e.g. 'Count: {{count}}')" },
+        title: { type: "string" },
+        subtitle: { type: "string" },
         variant: { type: "string", enum: ["primary", "secondary", "destructive", "outline"] },
-        actionId: { type: "string", description: "Event ID returned when clicked/interacted" },
-
-        // Icon
-        iconName: {
-          type: "string",
-          description: "Lucide icon name in kebab-case (e.g. 'sun', 'cloud', 'trending-up', 'check')",
-        },
-
-        // Rating, Progress & ElasticSlider
-        value: { type: "number", description: "Current numeric value" },
-        min: { type: "number", description: "Minimum range limit" },
-        max: { type: "number", description: "Maximum range limit" },
-
-        // Switch
-        checked: { type: "boolean", description: "Initial toggle state" },
-
-        // SegmentedControl & Stepper
-        options: {
-          type: "array",
-          items: { type: "string" },
-          description: "Tab choices for SegmentedControl",
-        },
-        steps: {
-          type: "array",
-          items: { type: "string" },
-          description: "Step titles for Stepper",
-        },
-        currentStep: { type: "number", description: "Active 0-indexed step" },
-
-        // ExpandableText & InlineEdit
-        text: { type: "string", description: "Body text or editable value" },
+        iconName: { type: "string" },
+        value: { type: "number" },
+        min: { type: "number" },
+        max: { type: "number" },
+        checked: { type: "boolean" },
+        options: { type: "array", items: { type: "string" } },
+        steps: { type: "array", items: { type: "string" } },
+        currentStep: { type: "number" },
+        text: { type: "string" },
       },
     },
+
     children: {
       type: "array",
-      description: "Nested child nodes. ONLY used on Container; leaf components must omit this field.",
-      items: {
-        $ref: "#",
-      },
+      items: { $ref: "#" },
     },
   },
   required: ["type"],
-};`,
-            // response_format: {
-            //   type: "text",
-            //   mime_type: "application/json",
-            //   schema: uiSchema,
-            // },
+}`,
           });
         }
 
