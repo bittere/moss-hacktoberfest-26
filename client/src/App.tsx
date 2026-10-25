@@ -10,8 +10,6 @@ const DEFAULT_WIDGETS: WidgetItem[] = SAMPLE_WIDGETS.map((tree) => ({
   isStreaming: false,
 }));
 
-
-// const SERVER_URL = "http://localhost:3000/api/chat";
 const SERVER_URL = "https://moss-hacktoberfest-26-server.bittere.workers.dev/api/chat";
 const STORAGE_KEY_WIDGETS = "app_cached_widgets_v1";
 const STORAGE_KEY_CONVO = "app_cached_conversation_id";
@@ -107,11 +105,7 @@ export default function App() {
     if (typeof window === "undefined") return DEFAULT_WIDGETS;
     try {
       const saved = localStorage.getItem(STORAGE_KEY_WIDGETS);
-
-      // If never set before (first visit), load the sample widgets
-      if (saved === null) {
-        return DEFAULT_WIDGETS;
-      }
+      if (saved === null) return DEFAULT_WIDGETS;
 
       const parsed: WidgetItem[] = JSON.parse(saved);
       return parsed
@@ -122,13 +116,29 @@ export default function App() {
     }
   });
 
-
   const [conversationId, setConversationId] = useState<string | undefined>(() => {
     if (typeof window === "undefined") return undefined;
     return localStorage.getItem(STORAGE_KEY_CONVO) || undefined;
   });
 
   const carouselRef = useRef<HTMLDivElement>(null);
+
+  // 1. Mouse wheel horizontal scrolling listener
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      // If user isn't already holding shift and scrolls vertically, scroll horizontally
+      if (e.deltaY !== 0 && !e.shiftKey) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   // Sync to localStorage
   useEffect(() => {
@@ -150,7 +160,7 @@ export default function App() {
     }
   }, [conversationId]);
 
-  // Auto-scroll triggers ONLY when there are more than 4 widgets
+  // Auto-scroll when new widgets arrive (after 4)
   useEffect(() => {
     if (carouselRef.current && widgets.length > 4) {
       carouselRef.current.scrollTo({
@@ -166,7 +176,6 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_WIDGETS, "[]");
     localStorage.removeItem(STORAGE_KEY_CONVO);
   };
-
 
   const handleSubmit = async (overridePrompt?: string) => {
     const prompt = (overridePrompt || value).trim();
@@ -252,7 +261,6 @@ export default function App() {
   };
 
   const hasWidgets = widgets.length > 0;
-  const isScrollable = widgets.length > 4;
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-background text-foreground relative flex flex-col">
@@ -293,24 +301,20 @@ export default function App() {
 
       {/* ========================================================
           1. WIDGETS TILING CANVAS
-          - Stretches full container height
-          - Content-driven widths (no forced 50% width)
-          - 1-4 widgets: Centered across the screen without scroll
-          - 5+ widgets: Horizontal runway with scrolling
          ======================================================== */}
       {hasWidgets && (
         <div
           ref={carouselRef}
-          className={`flex-1 w-full px-6 pt-5 pb-28 [scrollbar-gutter:stable] ${isScrollable ? "overflow-x-auto overflow-y-hidden" : "overflow-x-hidden overflow-y-hidden"
-            }`}
+          className="flex-1 w-full min-w-0 max-w-full overflow-x-auto overflow-y-hidden px-6 pt-5 pb-28 [scrollbar-gutter:stable]"
           style={{
             scrollbarWidth: "thin",
             scrollbarColor: "hsl(var(--muted-foreground) / 0.3) transparent",
           }}
         >
+          {/* Track container: centers widgets when <= 4, aligns to start when > 4 */}
           <motion.div
             layout
-            className={`h-full flex items-stretch gap-5 transition-all ${isScrollable ? "min-w-max justify-start" : "w-full justify-center"
+            className={`h-full flex items-stretch gap-5 min-w-full w-max ${widgets.length <= 4 ? "justify-center" : "justify-start"
               }`}
           >
             <AnimatePresence mode="popLayout">
@@ -325,7 +329,6 @@ export default function App() {
                     layout: { type: "spring", stiffness: 300, damping: 30 },
                     opacity: { duration: 0.25 },
                   }}
-                  // Content-driven sizing: scales dynamically between 280px and 640px based on content
                   className="w-auto min-w-[280px] max-w-[640px] h-full flex flex-col shrink-0 rounded-2xl border border-border/50 bg-card/75 p-6 shadow-xl backdrop-blur-md arc-theme"
                   data-theme="dark"
                 >
